@@ -1,0 +1,50 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Mar 28 16:43:26 2022
+
+@author: ellen
+"""
+
+import numpy as np
+import matplotlib as plt
+T=10 #final time
+dt=0.1 #length of time step
+
+Y=np.zeros([m+n+comb(m,2),m+n+comb(m,2)])
+Q=np.zeros([m+n+comb(m,2),m+n+comb(m,2)])
+
+#not sure this is really the correct way to be doing it, but method of projecting
+#vector onto the diagonal is correct
+#Q[np.diag_indices_from(Q)]=np.reshape(y*r(y, sigma, A, f),(n+m+comb(m,2),))
+
+#np.reshape(y,(8,)) #to get it in the correct shape to place on the diagonal
+Y[np.diag_indices_from(Y)]=np.transpose(y)
+
+Q=np.matmul(Y,r(y, sigma, A, f)) #example of a calculation of Q
+
+#Euler forward, blows up, probably unstable
+#for t in range(T):
+#    r_n=r(y, sigma, A, f)
+#    y=y+dt*(r_n*y)
+#    print(y)
+           
+
+def euler_root(y_star, dt, y):
+    Q=y_star*r(y_star, sigma, A, f) #call r function in terms of y_star now
+    return np.array(y_star-y-dt*Q)    
+  
+  
+    
+#Euler backward
+for t in range(T):
+    #p=euler_root(dt, y, y_star)
+    y_n1 = optimize.newton(euler_root, 10*np.ones([8,1]),args=(dt, y), tol=0.01)
+    #this loop is to prevent values from becoming negative
+    #for i in range(len(y_n1)):
+    #    if y_n1[i]<0:
+    #        y_n1[i]=0
+    y=y_n1
+    print(y)
+    
+#not nan, but values are still extremely small 
+    
