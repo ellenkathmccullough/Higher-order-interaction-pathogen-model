@@ -1,0 +1,225 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon May  2 12:19:56 2022
+
+@author: ellen
+"""
+
+import numpy as np 
+import matplotlib.pyplot as plt
+#from Users\ellen\OneDrive\Utrecht MS\2020-2022\Thesis\Thesis coding\Competition_mutualism_kernel_model_2_cleaner.py import gaussian_parameters_func
+import random 
+from random import randint
+
+n=6
+m=6
+'keep initial densities between 0 and 1'
+T=np.transpose(np.random.uniform(0, 1,n)) #trees
+P=np.transpose(np.random.uniform(0, 1,m)) #pathogens
+N=np.concatenate((T,P))
+r=np.random.uniform(0,100,(n+m))
+fT=100000
+dt=0.001
+tau=20
+
+psi_shift=False
+HOI=True
+tree_HOI=True
+ratio_test=False
+Evolution=True
+
+'trait values parameters for path utilisation functions' #what distributions should these values be drawn from
+x=np.random.uniform(1,10,n) #tree trait values
+d=np.random.uniform(1,10,m) #pathogen mean values distance from 0, modelled gaussian or normal?
+w=np.random.uniform(1,4,m) #width of pathogen gaussians
+
+
+'tree comp trait values'
+d_tree=np.random.uniform(1,10,n)
+w_tree=np.random.uniform(1,4,n)
+
+
+'Pairwise interactions'
+def pairwise_kernel_func(w,d,x,n,m):
+    alpha=np.zeros([n+m,n+m]) #competition kernel
+    alpha_1=np.zeros([n,n]) #effect on trees of pairwise tree-tree interactions
+    alpha_2=np.zeros([n,m]) #effect on trees of pairwise path-tree interactions
+    alpha_3=np.zeros([m,n]) #effect on pathogens of pairwise path-tree interactions
+    alpha_4=np.zeros([m,m]) #effect of competition between pathogens on pathogens
+    
+    for i in range(n):
+        for j in range(n):
+            alpha_1[i,j]=-np.sqrt(2*w_tree[i]*w_tree[j]/(w_tree[i]**2+w_tree[j]**2))*np.exp(-(d_tree[i]-d_tree[j])**2/(2*(w_tree[i]**2+w_tree[j]**2)))
+    'gauss_par_func gives all positive matrices'        
+    alpha_4,alpha_3,alpha_2=gaussian_parameters_func(w,d,x,n,m)
+    alpha_2=-alpha_2 #negative effect on trees of path-tree interaction
+    alpha_4=-alpha_4 #negative pathogen pairwise interactions
+    
+    alpha[:n,:n]=alpha_1
+    alpha[:n,n:n+m]=alpha_2
+    alpha[n:n+m,:n]=alpha_3
+    alpha[n:n+m,n:n+m]=alpha_4
+    return(alpha)
+
+def beta_kernel_func(alpha,n,m):
+    beta_4_t=np.zeros([n,m,m])  
+    beta_2_t=np.zeros([n,n,m])
+    beta_2_p=np.zeros([m,n,m])     
+    'HOI impact on trees'
+    for i in range(n):
+        for a in range(n,n+m):
+            for b in range(n,n+m):
+                beta_4_t[i,a-n,b-n]=-alpha[a,i]*(1+alpha[b,i])*(1+alpha[a,b])
+        beta[i,n:,n:]=beta_4_t[i]      
+        
+    'HOI impact on pathogen in pairwise interaction'
+    for a in range(n,n+m):
+        for i in range(n):
+            for b in range(n,n+m):
+                beta_2_p[a-n,i,b-n]=(alpha[a,i]/(alpha[a,i]+alpha[b,i]))*(-beta[i,a,b])
+        beta[a,:n,n:n+m]=beta_2_p[a-n]
+    
+    'HOIs with two trees'
+    if tree_HOI==True:
+        for i in range(n):
+            for j in range(n):
+                for b in range(n,n+m): 
+                    beta_2_t[i,j,b-n]=np.random.uniform(-0.2,0.2)
+            beta[i,:n,n:]=beta_2_t[i]
+    return(beta)
+
+def non_lin_func(beta,N):
+        g=np.zeros([(n+m)])
+        NN=[]
+        for j in range(n+m):
+            for k in range(n+m):
+                NN.append(N[j]*N[k])       
+        NN=np.array(NN) 
+        for i in range(n+m):
+            g[i]=np.matmul(np.transpose(beta[i].flatten()),NN)
+        return(g)
+    
+def ratio_test_func(alpha):
+    if ratio_test==True:
+        'requires big system of linear constraint equations'
+        'test to see which fitness levels comply with stability coexistence condition'
+        'Currently just a test, want to be able to select them so that this condition is filled'
+        r_ratios=np.zeros([n+m,n+m])
+        alp_ratios=np.zeros([n+m,n+m])
+        #l=0
+        for i in range(n+m):
+            for j in range(n+m):
+                #l=l+1
+                alp_ratios[i,j]=alpha[i,j]/alpha[j,j]
+                r_ratios[i,j]=r[i]/r[j]
+                #r[l-1]=2*ratios[i,j]
+                if r_ratios[i,j]<alp_ratios[i,j]:
+                    print(r_ratios[i,j])
+
+
+alpha=pairwise_kernel_func(w,d,x,n,m)
+if ratio_test==True:
+    ratio_test_func(alpha)    
+         
+beta=np.zeros([m+n,m+n,m+n]) 
+g=np.zeros([(n+m)])
+if HOI==True: 
+    beta=beta_kernel_func(alpha,n,m)
+    g=non_lin_func(beta,N)      
+             
+                
+def master_eqn(r,N,alpha,g,beta):
+    g=non_lin_func(beta,N)  
+    res=np.matmul(np.diag(r),N)*(1+np.matmul(alpha,N)+g)
+    return(res)
+  
+'Runge-Kutta integration'
+def Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT):
+    N_p=np.zeros([len(N),fT+1])
+    N_p[:,0]=N[:]
+    for t in range(fT):
+        k1=master_eqn(r,N,alpha,g,beta)
+        k2=(N+dt*(k1/2))*master_eqn(r,N+dt*(k1/2),alpha,g,beta)
+        k3=(N+dt*(k2/2))*master_eqn(r,N+dt*(k2/2),alpha,g,beta)
+        k4=(N+dt*k3)*master_eqn(r,N+dt*k3,alpha,g,beta)
+        N_n1=N+(1/6)*dt*(k1+2*k2+2*k3+k4)
+        N=N_n1
+        N_p[:,t+1]=N[:]   
+        N_final=np.copy(N) #to save final values
+        if all(np.abs(N_p[:,t]-N_p[:,t-1])<=0.00001)==True:
+            final_time=t
+            break
+    print('Time integration ended after ' + str(t) +' steps')
+    return(N_final,N_p,final_time)  
+
+N_final,N_p,final_time=Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT)
+
+'trajectories'
+for i in range(len(N)):
+    if i<n:        
+        plt.plot(np.linspace(0,final_time,final_time+1),N_p[i,:final_time+1], label='T_'+str(i))
+        plt.legend() 
+    if i>=n:
+        plt.plot(np.linspace(0,final_time,final_time+1),N_p[i,:final_time+1], label='P_'+str(i-n))    
+        plt.legend()   
+plt.show()     
+        
+'abundance plots'
+abundance_plots_func(N_final,n,m) #call function for abundance plots  
+
+
+def mutation_func_HOI(alpha,beta,n,m):
+    pert=0.01
+    alpha0=np.copy(alpha)    #create copy to save original values
+    beta0=np.copy(beta)       #saves original values for next mutation attempt
+    for i in range(1001): #isolate scalar value
+        alpha=np.copy(alpha0)
+        beta=np.copy(beta0)
+        #start with only pathogen mutations
+        mutant=random.randrange(0,m) #randomly select pathogen to experience mutuation
+        dw=randint(0,1)
+        if dw==0:
+            d[mutant]=d[mutant]+np.random.uniform(-pert*d[mutant],pert*d[mutant])
+        if dw==1:
+            w[mutant]=w[mutant]+np.random.uniform(-pert*w[mutant],pert*w[mutant])
+        alpha=pairwise_kernel_func(w,d,x,n,m)
+        beta=np.zeros([m+n,m+n,m+n]) 
+        g=np.zeros([(n+m)])
+        N_test=np.copy(N_final)
+        N_test[n+mutant]=0
+        if HOI==True: 
+            beta=beta_kernel_func(alpha,n,m)
+            g=non_lin_func(beta,N_test)
+        invasion_fitness=r[n+mutant]*(1+np.matmul(alpha,N_test)+g)[n+mutant]
+        if invasion_fitness>0:
+            break
+    print(str(i) +' mutational attempts, invasion fitness:' +str(invasion_fitness))
+    return(alpha,beta,invasion_fitness)
+
+#alpha,beta,invasion_fitness=mutation_func_HOI(alpha,beta)
+
+def evolution_func_HOI(N_final,alpha,beta,n,m):
+    N=np.copy(N_final)
+    alpha,beta,invasion_fitness=mutation_func_HOI(alpha,beta,n,m)
+    g=np.zeros([(n+m)])
+    if HOI==True: 
+        g=non_lin_func(beta,N)  
+    N_final,N_p,final_time=Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT)
+    return(N_final,alpha,beta)
+
+N_pt=np.zeros([n+m,tau])
+if Evolution==True:    
+    for t in range(tau):
+        N_final,alpha,beta=evolution_func_HOI(N_final,alpha,beta,n,m)
+        N_pt[:,t]=N_final[:] 
+    
+'Plot tree evolution space'
+for i in range(len(N[:n])):
+    plt.plot(np.linspace(0,tau-1,tau),N_pt[i,:], label='T_'+str(i))   
+plt.show()
+    
+'Plot pathogen evolution space'
+for i in range(len(N[n:])):
+    plt.plot(np.linspace(0,tau-1,tau),N_pt[n+i,:], label='P_'+str(i)) 
+plt.show()
+
