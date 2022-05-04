@@ -1,0 +1,344 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Apr 20 16:12:01 2022
+
+@author: ellen
+"""
+
+import numpy as np
+import random 
+import matplotlib.pyplot as plt
+#from numpy import trapz
+#from sympy import Point, Polygon
+from random import randint, choice
+
+'Initial pathogen/tree vector'
+n=4 #number of tree species
+m=3 #number of pathogen species
+T=np.transpose(np.array([random.sample(range(1, 100), n)])) #trees
+P=np.transpose(np.array([random.sample(range(1, 100), m)])) #pathogens
+y=np.concatenate((T,P))
+
+'Model specifications'
+neg_kernel=True
+Holling=False
+Interference=False
+Immigration=True
+gamma_beta_trans=True 
+tree_mutualism=False
+traj_plot=True
+abun_plots=True
+mutuation=False
+psi_alpha_relation=True
+tree_immigration=True
+Evolution=True
+Gaussian_kernel=True
+psi_shift=False #if this is true it overrides previous psi definitions
+'Runge-Kutta time integration parameters'
+fT=10010
+dt=0.001
+'Evolutionary time parameters'
+tau=50 
+
+'Initial model Parameters'
+c=np.random.random(1) #searching efficiency
+h=np.random.random(1) #handling time
+eta=np.random.uniform(1,1.5,(m,n)) #conversion from trees to paths >1 so alpha<<beta
+int_coeff=np.random.uniform(0.5,1)
+int_m=np.random.uniform(0,5) #strength of pred interference
+c_2=np.random.random(1) #strength of inter-tree mutualism
+sd=np.random.uniform(low=1, high=4, size=m)     #attack distribution standard deviations
+k=np.transpose(np.array([random.sample(range(0, 5000), m)])) #carrying capacities   
+a=np.zeros([n,1]) #tree birth vector
+r_g=np.random.random((n+m,1))
+for i in range(n):
+    a[i]=random.uniform(100,200)
+b=np.zeros([m,1])   #pathogen death vector
+for i in range(m):
+    b[i]=random.uniform(10,20)
+f=np.concatenate((a,-b))
+
+'trait values parameters' #what distributions should these values be drawn from
+x=np.random.uniform(1,10,n) #tree trait values
+d=np.random.uniform(1,10,m) #pathogen mean values distance from 0, modelled gaussian or normal?
+w=np.random.uniform(1,4,m) #width of pathogen gaussians
+pert=0.2 #percentage difference from original trait value for mutations
+
+'Functions'
+def psi_alpha_func(alpha):
+    psi=np.zeros([m,m])
+    for i in range(m):
+        for j in range(m):
+            #measures how different any two pathogens attack distributions are
+            #only measures points at trees (that actually mean something)
+            height_diff=np.sum(abs((alpha[:,i]-alpha[:,j])))    
+            psi[i,j]=height_diff    
+    psi=np.tril(psi) + np.tril(psi, -1).T #make psi symmetric
+    psi=psi-psi*np.mean(psi)
+    neg_pull=0.5*(np.max(psi))*np.ones([m,m])   #calculate difference between each psi and half of max value
+    if neg_kernel==True:
+        psi=neg_pull-psi    #pull psi down into negative values for collab
+        #0.5*(np.max(psi)) selected to get a midpoint at which to "set" 0
+    return(psi)
+
+def gaussian_parameters_func(w,d,x,n,m):
+    psi=np.zeros([m,m]) #competition kernel
+    for i in range(m):
+        for j in range(m):
+            psi[i,j]=np.sqrt(2*w[i]*w[j]/(w[i]**2+w[j]**2))*np.exp(-(d[i]-d[j])**2/(2*(w[i]**2+w[j]**2)))
+    if psi_shift==True:
+        shift=0.2
+        psi=(1/(1-shift))*(psi-shift)
+    beta=np.zeros([m,n])
+    for i in range(m):
+        for j in range(n):
+            beta[i,j]=np.exp(-x[j]/2*w[i])
+            beta=beta/np.sum(beta) #normalisation constant
+    'redfine alpha'
+    alpha=np.transpose(beta)    #apply scaling with eta later
+    return(psi, beta, alpha) #these give all positive matrices
+
+def A_func(beta,psi,k):
+    comp=psi/k
+    A=np.zeros([n+m,n+m])
+    A[:n,n:]=-alpha
+    if Holling==False:
+        A[n:,:n]=beta       
+    A[n:,n:]=-comp
+    return(A)
+
+def holling_func(gamma,y,c,h):
+    if Interference==True:
+        c=0.5*(y[n:]/P)**(-2)
+    M=np.divide(c*np.matmul(gamma,y[:n]),(1+h*c*np.matmul(gamma,y[:n])))
+    g_m=np.zeros([n+m,1])
+    g_m[n:,]=M
+    return(g_m)
+
+def tree_mutualism_func(c_2,phi,y,g_m):
+    g_m[:n]=np.divide(c_2*np.matmul(phi,y[:n]),(1+c_2*np.matmul(phi,y[:n])))
+    return(g_m)
+
+'Residual function'
+def r_mutualism(y,A,f,g_m):             
+    return(f+np.matmul(A,y)+g_m)
+
+'Runge-Kutta integration'
+def Runge_kutta_int(r_g,y,dt,q,A,f,g_m):
+    y_p=np.zeros([len(y),fT+1])
+    y_p[:,0]=y[:,0]
+    for t in range(fT):
+        k1=r_g*y*r_mutualism(y,A,f,g_m)+q
+        k2=r_g*(y+dt*(k1/2))*r_mutualism(y+dt*(k1/2),A,f,g_m)+q
+        k3=r_g*(y+dt*(k2/2))*r_mutualism(y+dt*(k2/2),A,f,g_m)+q
+        k4=r_g*(y+dt*k3)*r_mutualism(y+dt*k3,A,f,g_m)+q
+        y_n1=y+(1/6)*dt*(k1+2*k2+2*k3+k4)
+        y=y_n1
+        y_p[:,t+1]=y[:,0]   
+        y_final=np.copy(y) #to save final values
+        #need to stop after deviations are below a certain level, not just a random timestep
+    return(y_final,y_p)
+
+def mutuation_func_old(alpha,beta,gamma,psi):
+    alpha0=np.copy(alpha)    #create copy to save original values
+    beta0=np.copy(beta)       #saves original values for next mutation attempt
+    gamma0=np.copy(gamma)
+    psi0=np.copy(psi)
+    invasion_fitness=np.array([-1])  #to start loop off
+    while invasion_fitness[0] < 0: #isolate scalar value
+        #to return to original evolutionary landscape if mutation does not hold
+        alpha=np.copy(alpha0)
+        beta=np.copy(beta0)
+        gamma=np.copy(gamma0)
+        psi=np.copy(psi0)
+        mutant=random.randrange(0,m) #randomly select pathogen to experience mutuation
+        mut_ind_take=random.randrange(0,n) #the tree that the mutant is better at attacking than resident
+        #tree the mutant is worse at attacking than resident
+        mut_ind_give=choice([i for i in range(n) if i not in [mut_ind_take]]) #make sure different elements are selected
+        pert=np.random.uniform(0,np.minimum(1-alpha[mut_ind_take,mutant],alpha[mut_ind_give,mutant])) #Dont want a value over 1 or below 0 in attack dis
+        alpha[mut_ind_take,mutant]=alpha[mut_ind_take,mutant]+pert
+        alpha[mut_ind_give,mutant]=alpha[mut_ind_give,mutant]-pert
+        psi=psi_alpha_func(alpha)
+        comp=psi/k
+        if gamma_beta_trans==True:
+                gamma=np.multiply(eta,np.transpose(alpha))
+                beta=np.multiply(eta,np.transpose(alpha))
+        #if Holling==True:
+            #check this line, not convinced its correct
+            #invasion_fitness=r[n+mutant]*(-b[mutant]+np.divide(c*np.matmul(gamma,y_final[:n]), 1+h*c*np.matmul(gamma,y_final[:n]))[mutant]-np.matmul(comp,y_final[n:])[mutant])+q[n+mutant]
+        if Holling==False:
+            invasion_fitness=r[n+mutant]*(-b[mutant]+np.matmul(beta[mutant,:],y_final[:n])-np.matmul(comp[mutant,:],y_final[n:]))
+    return(alpha, beta, gamma, psi, comp, invasion_fitness) 
+
+def mutation_func_Gaussian(alpha,beta,gamma,psi,pert):
+    alpha0=np.copy(alpha)    #create copy to save original values
+    beta0=np.copy(beta)       #saves original values for next mutation attempt
+    gamma0=np.copy(gamma)
+    psi0=np.copy(psi)
+    invasion_fitness=np.array([-1])  #to start loop off
+    while invasion_fitness[0] < 0: #isolate scalar value
+        alpha=np.copy(alpha0)
+        beta=np.copy(beta0)
+        gamma=np.copy(gamma0)
+        psi=np.copy(psi0)
+        #start with only pathogen mutations
+        mutant=random.randrange(0,m) #randomly select pathogen to experience mutuation
+        dw=randint(0,1)
+        if dw==0:
+            d[mutant]=d[mutant]+np.random.uniform(-pert*d[mutant],pert*d[mutant])
+        if dw==1:
+            w[mutant]=w[mutant]+np.random.uniform(-pert*d[mutant],pert*d[mutant])
+        psi,beta,alpha=gaussian_parameters_func(w, d, x,n,m)
+        comp=psi/k
+        if gamma_beta_trans==True:
+            gamma=beta #leave eta scaling out for now 
+        if Holling==False:
+            invasion_fitness=r[n+mutant]*(-b[mutant]+np.matmul(beta[mutant,:],y_final[:n])-np.matmul(comp[mutant,:],y_final[n:]))
+        return(alpha, beta, gamma, psi, comp, invasion_fitness)
+        
+
+'Combination of all functions'
+def evolution_func(y_final,beta,psi,k,gamma,c,h,c_2,phi,A,f,r_g,dt,q,alpha):
+    y=np.copy(y_final)
+    if Gaussian_kernel==True:
+        alpha, beta, gamma, psi, comp, invasion_fitness=mutation_func_Gaussian(alpha,beta,gamma,psi,pert)
+    if Gaussian_kernel==False:
+        alpha, beta, gamma, psi, comp, invasion_fitness=mutuation_func_old(alpha, beta, gamma, psi)
+    A=A_func(beta,psi,k) #incorporates Holling true or false
+    if Holling==True:
+        g_m=holling_func(gamma,y,c,h) 
+    if Holling==False:
+        g_m=np.zeros([n+m,1])   
+    if tree_mutualism==True:
+        g_m=tree_mutualism_func(c_2, phi, y, g_m) #ammends g_m values
+    y_final,y_p=Runge_kutta_int(r_g,y,dt,q,A,f,g_m)
+    return(y_final,alpha)
+
+'abundance plot function'
+def abundance_plots_func(y,n,m):   
+    if abun_plots==True:
+    #rank of tree types
+        tree_rank=np.argsort(y[:n],axis=0)
+        path_rank=np.argsort(y[n:],axis=0)
+        
+        #tree abundance distribution
+        langs=[]
+        for i in tree_rank:
+            langs.append('T_'+str(i))
+        tree_a=y[tree_rank].tolist()
+        plt.scatter(langs,tree_a)
+        plt.show()
+    
+        #pathogen abundance distribution
+        langs=[]
+        for i in path_rank:
+            langs.append('P_'+str(i))
+        path_a=y[n+path_rank].tolist()
+        plt.scatter(langs,path_a)
+        plt.show()
+
+'Scenario dependent parameters'
+'alpha'
+alpha=np.zeros([n,m])   #utilisation distributions
+for j in range(m):
+    alpha[:,j]=np.random.normal(12, sd[j], size=(n)) #gaussian attack distributions
+    alpha[:,j]=alpha[:,j] / np.sum(alpha[:,j])  #normalise columns (attack distributions), each pathogen has same "attack energy to distribute"            
+    
+'beta'
+if Holling==True:
+    beta=np.zeros([m,n])
+if Holling==False:
+    beta=np.random.random((m,n))
+    if gamma_beta_trans==True:
+        beta=np.multiply(eta,np.transpose(alpha))
+if Gaussian_kernel==True:
+    beta=gaussian_parameters_func(w,d,x,n,m)[1]
+    'redfine alpha'
+    alpha=gaussian_parameters_func(w,d,x,n,m)[2]    #apply scaling with eta later    
+            
+'psi'
+if neg_kernel==True:
+    psi=np.random.uniform(low=-1, high=1, size=(m,m))
+    for i in range(m):         #high intraspecific comp between paths  
+        psi[i,i]=np.random.uniform(np.max(psi), high=1) #inter comp < intra comp
+    psi=np.tril(psi) + np.tril(psi, -1).T
+    neg_pull=np.zeros([m,m]) #so this does nothing in next if neg_kernel statement
+if neg_kernel==False:
+    psi=np.random.uniform(low=0,high=1,size=(m,m))   
+    for i in range(m):    #high intraspecific comp between paths       
+        psi[i,i]=np.random.uniform(np.max(psi), high=1)     #inter comp < intra comp
+    psi=np.tril(psi) + np.tril(psi, -1).T #makes symmetric about diag
+if psi_alpha_relation==True:
+    psi=psi_alpha_func(alpha)
+if Gaussian_kernel==True: 
+    psi=gaussian_parameters_func(w, d, x,n,m)[0] 
+
+'phi'
+#for tree mutualism kernel    
+#high mutualistic effect bewteen trees
+phi=np.random.uniform(0,1,(n,n)) 
+for i in range(n):
+    phi[i,i]=np.random.uniform(low=np.max(phi), high=1)
+    
+'q'
+q=np.zeros([n+m,1])     #immigration vector
+if Immigration==True:
+    q[n:]=np.random.uniform(low=0, high=1000, size=(m,1))   
+if tree_immigration==True:
+    q[:n]=np.random.uniform(low=0, high=1000, size=(n,1))     
+'gamma'
+if gamma_beta_trans==True:
+    gamma=np.multiply(eta,np.transpose(alpha))
+if gamma_beta_trans==False: 
+    gamma=np.random.uniform(low=0, high=np.min(psi), size=(m,n))   
+'A matrix'
+A=A_func(beta,psi,k)  
+  
+'g_m'
+if Holling==True:
+    g_m=holling_func(gamma,y,c,h)
+if Holling==False:
+    g_m=np.zeros([n+m,1])
+if tree_mutualism==True:
+    g_m=tree_mutualism_func(c_2,phi,y,g_m)
+    
+'residual'
+r=r_mutualism(y,A,f,g_m)   
+
+
+'One round of time-integration'
+y0=np.copy(y)
+y_final,y_p=Runge_kutta_int(r_g,y,dt,q,A,f,g_m)
+
+'Trajectory plot'
+if traj_plot==True:
+    for i in range(len(y)):
+        if i<n:        
+            plt.plot(np.linspace(0,fT,fT+1),y_p[i,:], label='T_'+str(i))
+        if i>=n:
+            plt.plot(np.linspace(0,fT,fT+1),y_p[i,:], label='P_'+str(i-n))    
+            plt.legend()
+
+'abundance plots'
+abundance_plots_func(y,n,m) 
+
+'one round of mutation'    
+if mutuation==True:
+    alpha, beta, gamma, psi, comp, invasion_fitness=mutuation_func_old(alpha,beta,gamma,psi)    
+
+'Evolution'
+y_pt=np.zeros([n+m,tau])
+if Evolution==True:    
+    for t in range(tau):
+        y_final,alpha=evolution_func(y_final, beta, psi, k, gamma, c, h, c_2, phi, A, f, r_g, dt, q, alpha)
+        y_pt[:,t]=y_final[:,0]      
+        #print(y_final,alpha)
+
+'Plot tree evolution space'
+for i in range(len(y[:n])):
+    plt.plot(np.linspace(0,tau-1,tau),y_pt[i,:], label='T_'+str(i))   
+    
+'Plot pathogen evolution space'
+for i in range(len(y[n:])):
+    plt.plot(np.linspace(0,tau-1,tau),y_pt[n+i,:], label='P_'+str(i))  
+    
