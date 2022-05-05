@@ -20,13 +20,14 @@ N=np.concatenate((T,P))
 r=np.random.uniform(0,100,(n+m))
 fT=100000
 dt=0.001
-tau=20
+tau=200
 
 psi_shift=False
 HOI=True
 tree_HOI=True
 ratio_test=False
 Evolution=True
+tree_mutation=True
 
 'trait values parameters for path utilisation functions' #what distributions should these values be drawn from
 x=np.random.uniform(1,10,n) #tree trait values
@@ -137,7 +138,7 @@ def master_eqn(r,N,alpha,g,beta):
 def Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT):
     N_p=np.zeros([len(N),fT+1])
     N_p[:,0]=N[:]
-    for t in range(fT):
+    for t in range(1,fT):
         k1=master_eqn(r,N,alpha,g,beta)
         k2=(N+dt*(k1/2))*master_eqn(r,N+dt*(k1/2),alpha,g,beta)
         k3=(N+dt*(k2/2))*master_eqn(r,N+dt*(k2/2),alpha,g,beta)
@@ -146,9 +147,12 @@ def Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT):
         N=N_n1
         N_p[:,t+1]=N[:]   
         N_final=np.copy(N) #to save final values
-        if all(np.abs(N_p[:,t]-N_p[:,t-1])<=0.00001)==True:
-            final_time=t
-            break
+        #require 10 time-steps of minimal change
+        if t>10:
+            all_test=(np.abs(N_p[:,t-10:t]-N_p[:,t-11:t-1])).flatten()
+            if all(all_test<=0.00001)==True:
+                final_time=t
+                break
     print('Time integration ended after ' + str(t) +' steps')
     return(N_final,N_p,final_time)  
 
@@ -172,25 +176,41 @@ def mutation_func_HOI(alpha,beta,n,m):
     pert=0.01
     alpha0=np.copy(alpha)    #create copy to save original values
     beta0=np.copy(beta)       #saves original values for next mutation attempt
-    for i in range(1001): #isolate scalar value
+    for i in range(1,1001): #isolate scalar value
         alpha=np.copy(alpha0)
         beta=np.copy(beta0)
         #start with only pathogen mutations
-        mutant=random.randrange(0,m) #randomly select pathogen to experience mutuation
-        dw=randint(0,1)
-        if dw==0:
-            d[mutant]=d[mutant]+np.random.uniform(-pert*d[mutant],pert*d[mutant])
-        if dw==1:
-            w[mutant]=w[mutant]+np.random.uniform(-pert*w[mutant],pert*w[mutant])
+        if tree_mutation==False:
+            mutant=random.randrange(0,m)
+            dw=randint(0,1)
+            if dw==0:
+                d[mutant]=d[mutant]+np.random.uniform(-pert*d[mutant],pert*d[mutant])
+            if dw==1:
+                w[mutant]=w[mutant]+np.random.uniform(-pert*w[mutant],pert*w[mutant])
+        if tree_mutation==True:
+            dw=randint(0,2)
+            if dw==0:
+                mutant=random.randrange(0,m)
+                d[mutant]=d[mutant]+np.random.uniform(-pert*d[mutant],pert*d[mutant])
+            if dw==1:
+                mutant=random.randrange(0,m)
+                w[mutant]=w[mutant]+np.random.uniform(-pert*w[mutant],pert*w[mutant])
+            if dw==2:
+                mutant=random.randrange(0,n)
+                x[mutant]=x[mutant]+np.random.uniform(-pert*x[mutant],pert*w[mutant])  
         alpha=pairwise_kernel_func(w,d,x,n,m)
         beta=np.zeros([m+n,m+n,m+n]) 
         g=np.zeros([(n+m)])
         N_test=np.copy(N_final)
-        N_test[n+mutant]=0
+        if dw==0:
+            mutant=n+mutant
+        if dw==1:
+            mutant=n+mutant
+        N_test[mutant]=0
         if HOI==True: 
             beta=beta_kernel_func(alpha,n,m)
             g=non_lin_func(beta,N_test)
-        invasion_fitness=r[n+mutant]*(1+np.matmul(alpha,N_test)+g)[n+mutant]
+        invasion_fitness=r[mutant]*(1+np.matmul(alpha,N_test)+g)[mutant]
         if invasion_fitness>0:
             break
     print(str(i) +' mutational attempts, invasion fitness:' +str(invasion_fitness))
@@ -215,11 +235,21 @@ if Evolution==True:
     
 'Plot tree evolution space'
 for i in range(len(N[:n])):
-    plt.plot(np.linspace(0,tau-1,tau),N_pt[i,:], label='T_'+str(i))   
+    plt.plot(np.linspace(0,tau-1,tau),N_pt[i,:], label='T_'+str(i))  
+    plt.legend()
 plt.show()
     
 'Plot pathogen evolution space'
 for i in range(len(N[n:])):
     plt.plot(np.linspace(0,tau-1,tau),N_pt[n+i,:], label='P_'+str(i)) 
+    plt.legend()
 plt.show()
+
+
+'Tree-rank evolution'
+tree_rank_tau=np.zeros([n,tau])
+for i in range(tau):
+    tree_rank_tau[:,i]=np.argsort(N_pt[:n,i],axis=0)
+    #print(tree_rank_tau[:,i])
+
 
