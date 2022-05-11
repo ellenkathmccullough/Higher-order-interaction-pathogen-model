@@ -10,9 +10,11 @@ import matplotlib.pyplot as plt
 #from Users\ellen\OneDrive\Utrecht MS\2020-2022\Thesis\Thesis coding\Competition_mutualism_kernel_model_2_cleaner.py import gaussian_parameters_func
 import random 
 from random import randint
+import time
+import statistics
 
-n=6
-m=6
+n=5
+m=5
 'keep initial densities between 0 and 1'
 T=np.transpose(np.random.uniform(0, 1,n)) #trees
 P=np.transpose(np.random.uniform(0, 1,m)) #pathogens
@@ -20,14 +22,20 @@ N=np.concatenate((T,P))
 r=np.random.uniform(0,100,(n+m))
 fT=100000
 dt=0.001
-tau=200
+tau=20
 
 psi_shift=False
 HOI=True
 tree_HOI=True
 ratio_test=False
 Evolution=True
-tree_mutation=True
+tree_mutation=False #exclude tree mutations
+fast_paths=True #pathogens give birth faster than trees (increased fitness)
+
+if fast_paths==True:
+    r[:n]=np.random.uniform(0,10,n) #trees grow slower
+    r[n:]=np.random.uniform(10,100,m)   #paths grow faster
+
 
 'trait values parameters for path utilisation functions' #what distributions should these values be drawn from
 x=np.random.uniform(1,10,n) #tree trait values
@@ -145,7 +153,7 @@ def Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT):
         k4=(N+dt*k3)*master_eqn(r,N+dt*k3,alpha,g,beta)
         N_n1=N+(1/6)*dt*(k1+2*k2+2*k3+k4)
         N=N_n1
-        N_p[:,t+1]=N[:]   
+        N_p[:,t+1]=np.copy(N[:])    #need to record this so know when to stop
         N_final=np.copy(N) #to save final values
         #require 10 time-steps of minimal change
         if t>10:
@@ -223,15 +231,18 @@ def evolution_func_HOI(N_final,alpha,beta,n,m):
     alpha,beta,invasion_fitness=mutation_func_HOI(alpha,beta,n,m)
     g=np.zeros([(n+m)])
     if HOI==True: 
-        g=non_lin_func(beta,N)  
+        g=non_lin_func(beta,N)
     N_final,N_p,final_time=Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT)
     return(N_final,alpha,beta)
 
 N_pt=np.zeros([n+m,tau])
 if Evolution==True:    
     for t in range(tau):
+        start_time = time.time()
         N_final,alpha,beta=evolution_func_HOI(N_final,alpha,beta,n,m)
         N_pt[:,t]=N_final[:] 
+        end_time = time.time()
+        print('Simulation length: ' +str(end_time  - start_time))
     
 'Plot tree evolution space'
 for i in range(len(N[:n])):
@@ -252,4 +263,9 @@ for i in range(tau):
     tree_rank_tau[:,i]=np.argsort(N_pt[:n,i],axis=0)
     #print(tree_rank_tau[:,i])
 
-
+'Summary statistics'
+#variation in final densities
+den_var=np.zeros([n+m])
+for i in range(n+m):
+        den_var[i]=statistics.variance(N_pt[i,:],xbar=None)
+    #want to calculate for only non-zero densities
