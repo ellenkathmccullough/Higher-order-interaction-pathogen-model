@@ -1,0 +1,82 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu May 26 12:25:35 2022
+
+@author: ellen
+
+"""
+import numpy as np
+import statistics
+from scipy.stats import entropy
+
+#tree_switches=[]
+#path_switches=[]
+#den_var=np.zeros([n+m,points])
+#no_sections=10  #number of sections to divide density space up into
+#avg_entropy=[]
+
+def summary_stats(n,m,tau,N_pt,no_sections):
+    'Summary statistics'
+    den_var=np.zeros([n+m])
+    for j in range(n+m):
+        den_var[j]=statistics.variance(N_pt[j,:],xbar=None)
+    
+    avg_den_var=np.mean(den_var) #average variance across all densities
+    
+    tree_rank_tau=np.zeros([n,tau])
+    path_rank_tau=np.zeros([m,tau])
+    for t in range(tau):
+        tree_rank_tau[:,t]=np.argsort(N_pt[:n,t],axis=0)
+        path_rank_tau[:,t]=np.argsort(N_pt[n:,t],axis=0)
+        #print(tree_rank_tau[:,i])
+        
+    tree_rank_switch_matrix=np.where(tree_rank_tau-np.roll(tree_rank_tau,-1,axis=1)!=0,1,0)
+    tree_switches=100*(np.count_nonzero(tree_rank_switch_matrix == 1)/(n*tau))
+    path_rank_switch_matrix=np.where(path_rank_tau-np.roll(path_rank_tau,-1,axis=1)!=0,1,0)
+    path_switches=100*(np.count_nonzero(path_rank_switch_matrix == 1)/(n*tau))
+    #print(str(tree_switches))
+    
+    'Tree density entropy'
+    den_sections_tree=np.linspace(np.min(N_pt[:n,:]), np.max(N_pt[:n,:]), no_sections)
+    den_sections_tree=np.insert(den_sections_tree,0,0) #add zero at beginning
+    sec_length_tree=np.zeros([n,no_sections]) #time spent in each section
+    tree_den_ent_vec=np.zeros([n])
+    for q in range(n):
+        for j in range(len(den_sections_tree)-1):
+            sec_length_tree[q,j]=(len(N_pt[q][np.where(np.logical_and(N_pt[q]>den_sections_tree[j], N_pt[q]<=den_sections_tree[j+1]))]))/tau
+            # percentage of time that each tree type spent in each section of density
+        tree_den_ent_vec[q]=entropy(sec_length_tree[q],base=no_sections) #scales entropy between 0 and 1
+    avg_den_ent_tree=np.mean(tree_den_ent_vec)
+    
+    'Tree rank entropy'
+    tree_rank_ent_mat=np.zeros([n,n])
+    tree_rank_ent_vec=np.zeros([n,1])
+    for i in range(n):
+        for j in range(n):
+            tree_rank_ent_mat[i,j]=np. count_nonzero(tree_rank_tau[i,:]==j)/tau
+        tree_rank_ent_vec[i]=entropy(tree_rank_ent_mat[i,:], base=n)
+    avg_rank_ent_tree=np.mean(tree_rank_ent_vec)
+    
+    
+    'Pathogen density entropy'
+    den_sections_path=np.linspace(np.min(N_pt[n:,:]), np.max(N_pt[n:,:]), no_sections)
+    den_sections_path=np.insert(den_sections_path,0,0) #add zero at beginning
+    sec_length_path=np.zeros([m,no_sections]) #time spent in each section
+    path_den_ent_vec=np.zeros([m])
+    for q in range(m):
+        for j in range(len(den_sections_path)-1):
+            sec_length_path[q,j]=(len(N_pt[n+q][np.where(np.logical_and(N_pt[n+q]>=den_sections_path[j], N_pt[n+q]<=den_sections_path[j+1]))]))/tau
+            # percentage of time that each tree type spent in each section of density
+        path_den_ent_vec[q]=entropy(sec_length_path[q],base=no_sections) #base scales entropy between 0 and 1   
+    avg_den_ent_path=np.mean(path_den_ent_vec)
+    
+    'Path rank entropy'
+    path_rank_ent_mat=np.zeros([m,m])
+    path_rank_ent_vec=np.zeros([m,1])
+    for i in range(m):
+        for j in range(m):
+            path_rank_ent_mat[i,j]=np. count_nonzero(path_rank_tau[i,:]==j)/tau
+        path_rank_ent_vec[i]=entropy(path_rank_ent_mat[i,:], base=m)
+    avg_rank_ent_path=np.mean(path_rank_ent_vec)
+    
+    return(avg_den_var, tree_switches, path_switches, avg_den_ent_tree, avg_den_ent_path, avg_rank_ent_tree, avg_rank_ent_path)
