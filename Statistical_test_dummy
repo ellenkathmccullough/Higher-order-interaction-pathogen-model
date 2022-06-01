@@ -1,0 +1,155 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu May 19 16:26:08 2022
+
+@author: ellen
+"""
+import numpy as np 
+import matplotlib.pyplot as plt
+#from Users\ellen\OneDrive\Utrecht MS\2020-2022\Thesis\Thesis coding\Competition_mutualism_kernel_model_2_cleaner.py import gaussian_parameters_func
+import random 
+from random import randint
+import time
+import statistics
+from scipy.stats import entropy
+
+Gau_den=False
+
+
+n=10
+m=10
+'statistical arrays'
+points=2
+tree_switches_list=[]
+path_switches_list=[]
+den_var_list=[]
+no_sections=10  #number of sections to divide density space up into
+avg_den_ent_tree_list=[]
+avg_den_ent_path_list=[]
+avg_rank_ent_tree_list=[]
+avg_rank_ent_path_list=[]
+
+printing=False #to turn off the printing and hopefully make sim faster
+Gau_den=False
+
+tic= time.perf_counter()
+for i in range(points):
+    'keep initial densities between 0 and 1'
+    T=np.transpose(np.random.uniform(0, 1,n)) #trees
+    P=np.transpose(np.random.uniform(0, 1,m)) #pathogens
+    if Gau_den==True:
+        T=np.transpose(np.random.normal(0.5, 0.5/3,n)) #trees
+        P=np.transpose(np.random.normal(0.5, 0.5/3,m))
+    N=np.concatenate((T,P))
+    N0=np.copy(N)
+    r=np.random.uniform(0,100,(n+m))
+    fT=100000
+    dt=0.001
+    tau=50
+    pert=0.2
+    deg_sep=10 #degrees of separation of tree and path eco time scales
+    
+    HOI=False
+    tree_HOI=False
+    ratio_test=False
+    Evolution=True
+    tree_mutation=False #exclude tree mutations
+    fast_paths=True #pathogens give birth faster than trees (increased fitness)
+    tree_comp=True
+    tree_path_comp=True #also turns off HOIs involving pairwise path-tree interactions
+    
+    if fast_paths==True:
+        r[:n]=np.random.uniform(0,10,n) #trees grow slower
+        r[n:]=np.random.uniform(10*deg_sep,10*deg_sep+10,m)   #paths grow faster
+    
+    
+    'trait values parameters for path utilisation functions' #what distributions should these values be drawn from
+    x=np.random.uniform(1,10,n) #tree trait values
+    d=np.random.uniform(1,10,m) #pathogen mean values distance from 0, modelled gaussian or normal?
+    w=np.random.uniform(1,4,m) #width of pathogen gaussians
+    
+    x0=np.copy(x)
+    d0=np.copy(d)
+    w0=np.copy(w)
+    
+    
+    'tree comp trait values'
+    d_tree=np.random.uniform(1,10,n)
+    w_tree=np.random.uniform(1,4,n)
+    
+    alpha=pairwise_kernel_func(w,d,x,n,m)
+             
+    beta=np.zeros([m+n,m+n,m+n]) 
+    g=np.zeros([(n+m)])
+    if HOI==True: 
+        beta=beta_kernel_func(alpha,n,m)
+        g=non_lin_func(beta,N)      
+             
+    N=N0
+    x=x0
+    d=d0
+    w=w0
+    #deg_sep=i
+    r[n:]=np.random.uniform(10*deg_sep,10*deg_sep+10,m)
+    
+    N_final,N_p,final_time=Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT)
+    
+    N_pt=np.zeros([n+m,tau])
+    N_pt[:,0]=N_final
+    tree_trait_ev=np.zeros([n,tau])
+    tree_trait_ev[:,0]=x
+    path_trait_ev=np.zeros([2,m,tau]) #2D path phenotype
+    path_trait_ev[:,:,0]=np.array([d,w])
+    
+    for t in range(1,tau):
+        N_final,alpha,beta, path_traits, tree_trait,mutant=evolution_func_HOI(N_final,alpha,beta,n,m)
+        N_pt[:,t]=N_final[:]
+        tree_trait_ev[:,t]=tree_trait
+        path_trait_ev[:,:,t]=np.array([d,w])
+    
+        
+    'Summary statistics'
+    avg_den_var, tree_switches, path_switches, avg_den_ent_tree, avg_den_ent_path, avg_rank_ent_tree, avg_rank_ent_path=summary_stats(n,m,tau,N_pt,no_sections)
+    tree_switches_list.append(tree_switches)
+    path_switches_list.append(path_switches)
+    den_var_list.append(avg_den_var)
+    avg_den_ent_tree_list.append(avg_den_ent_tree)
+    avg_den_ent_path_list.append(avg_den_ent_path)
+    avg_rank_ent_tree_list.append(avg_rank_ent_tree)
+    avg_rank_ent_path_list.append(avg_rank_ent_path)
+    
+    print('round ' +str(i+1) +' complete')
+toc = time.perf_counter()
+print('Simulation length: ' +str(int(toc  - tic)/60) +' minutes')
+    
+plt.plot(np.linspace(0,points-1,points),tree_switches_list)
+for i in range(points):
+    print(np.mean(den_var_list[i]))
+
+'to print vertically'    
+print('tree_switches')
+for i in range(len(tree_switches_list)):
+    print(tree_switches_list[i])       
+print('path_switches')
+for i in range(len(path_switches_list)):
+    print(path_switches_list[i])   
+print('den_var')
+for i in range(len(den_var_list)):
+    print(den_var_list[i]) 
+print('tree density entropy')   
+for i in range(len(avg_entropy_tree_list)):
+    print(avg_den_ent_tree_list[i])
+print('pathogen density entropy')
+for i in range(len(avg_entropy_path_list)):
+    print(avg_den_ent_path_list[i])
+print('tree rank entropy')   
+for i in range(len(avg_entropy_tree_list)):
+    print(avg_rank_ent_tree_list[i])
+print('pathogen rank entropy')
+for i in range(len(avg_entropy_path_list)):
+    print(avg_rank_ent_path_list[i])
+
+    
+    
+    
+    
