@@ -12,41 +12,68 @@ import random
 from random import randint
 import time
 import statistics
+from scipy.optimize import curve_fit
 
-n=5
-m=5
-'keep initial densities between 0 and 1'
-T=np.transpose(np.random.uniform(0, 1,n)) #trees
-P=np.transpose(np.random.uniform(0, 1,m)) #pathogens
-N=np.concatenate((T,P))
+n=15
+m=15
 r=np.random.uniform(0,100,(n+m))
-fT=100000
-dt=0.001
-tau=20
-
-psi_shift=False
+fT=1000000
+stab_len=0.1 #length of eco time that stability is required fro
+dt=0.001 #dont make larger than stab_len, otherwise initial distribution gets erased
+tau=50
+pert=0.1
+deg_sep=10 #degrees of separation of tree and path eco time scales
 HOI=True
 tree_HOI=True
 ratio_test=False
-Evolution=True
+Evolution=False
 tree_mutation=False #exclude tree mutations
 fast_paths=True #pathogens give birth faster than trees (increased fitness)
+tree_comp=True
+tree_path_comp=True #also turns off HOIs involving pairwise path-tree interactions
+interception_HOI_det=False
+interception_rand=False
+printing=False
+#Gaussian_pert==False #to make perturbation gaussian distributed (maybe will do this)
+Gau_den=True
+
+'keep initial densities between 0 and 1'
+T=np.transpose(np.random.uniform(0, 1,n)) #trees
+P=np.transpose(np.random.uniform(0, 1,m)) #pathogens
+if Gau_den==True:
+        T=np.transpose(np.random.normal(0.5, 0.5/3,n)) #trees
+        P=np.transpose(np.random.normal(0.5, 0.5/3,m))
+N=np.concatenate((T,P))
 
 if fast_paths==True:
     r[:n]=np.random.uniform(0,10,n) #trees grow slower
-    r[n:]=np.random.uniform(10,100,m)   #paths grow faster
-
-
+    #r[n:]=np.random.uniform(10*deg_sep,10*deg_sep+10,m)   #paths grow faster
+    r[n:]=np.random.uniform(10,100,m)
+    
 'trait values parameters for path utilisation functions' #what distributions should these values be drawn from
 x=np.random.uniform(1,10,n) #tree trait values
 d=np.random.uniform(1,10,m) #pathogen mean values distance from 0, modelled gaussian or normal?
 w=np.random.uniform(1,4,m) #width of pathogen gaussians
 
-
 'tree comp trait values'
 d_tree=np.random.uniform(1,10,n)
 w_tree=np.random.uniform(1,4,n)
 
+
+'Gaussian parameters function'
+def gaussian_parameters_func(w,d,x,n,m):
+    psi=np.zeros([m,m]) #competition kernel
+    for i in range(m):
+        for j in range(m):
+            psi[i,j]=np.sqrt(2*w[i]*w[j]/(w[i]**2+w[j]**2))*np.exp(-(d[i]-d[j])**2/(2*(w[i]**2+w[j]**2)))
+    beta=np.zeros([m,n])
+    for i in range(m):
+        for j in range(n):
+            beta[i,j]=(1/(w[i]*np.sqrt(2*np.pi)))*np.exp(-((x[j]-d[i])/2*w[i])**2)
+            beta=beta/np.sum(beta) #normalisation constant
+    'redfine alpha'
+    alpha=np.transpose(beta)    #apply scaling with eta later
+    return(psi, beta, alpha) #these give all positive matrices
 
 'Pairwise interactions'
 def pairwise_kernel_func(w,d,x,n,m):
@@ -55,14 +82,19 @@ def pairwise_kernel_func(w,d,x,n,m):
     alpha_2=np.zeros([n,m]) #effect on trees of pairwise path-tree interactions
     alpha_3=np.zeros([m,n]) #effect on pathogens of pairwise path-tree interactions
     alpha_4=np.zeros([m,m]) #effect of competition between pathogens on pathogens
-    
-    for i in range(n):
-        for j in range(n):
-            alpha_1[i,j]=-np.sqrt(2*w_tree[i]*w_tree[j]/(w_tree[i]**2+w_tree[j]**2))*np.exp(-(d_tree[i]-d_tree[j])**2/(2*(w_tree[i]**2+w_tree[j]**2)))
+   
+    if tree_comp==True:
+        for i in range(n):
+            for j in range(n):
+                alpha_1[i,j]=-np.sqrt(2*w_tree[i]*w_tree[j]/(w_tree[i]**2+w_tree[j]**2))*np.exp(-(d_tree[i]-d_tree[j])**2/(2*(w_tree[i]**2+w_tree[j]**2)))
     'gauss_par_func gives all positive matrices'        
     alpha_4,alpha_3,alpha_2=gaussian_parameters_func(w,d,x,n,m)
     alpha_2=-alpha_2 #negative effect on trees of path-tree interaction
     alpha_4=-alpha_4 #negative pathogen pairwise interactions
+    
+    if tree_path_comp==False:
+        alpha_2=np.zeros([n,m]) #effect on trees of pairwise path-tree interactions
+        alpha_3=np.zeros([m,n])
     
     alpha[:n,:n]=alpha_1
     alpha[:n,n:n+m]=alpha_2
@@ -71,22 +103,22 @@ def pairwise_kernel_func(w,d,x,n,m):
     return(alpha)
 
 def beta_kernel_func(alpha,n,m):
+    beta=np.zeros([m+n,m+n,m+n])
     beta_4_t=np.zeros([n,m,m])  
     beta_2_t=np.zeros([n,n,m])
     beta_2_p=np.zeros([m,n,m])     
-    'HOI impact on trees'
-    for i in range(n):
-        for a in range(n,n+m):
-            for b in range(n,n+m):
-                beta_4_t[i,a-n,b-n]=-alpha[a,i]*(1+alpha[b,i])*(1+alpha[a,b])
-        beta[i,n:,n:]=beta_4_t[i]      
-        
-    'HOI impact on pathogen in pairwise interaction'
-    for a in range(n,n+m):
+    'HOI impact on trees and pathogens'
+    if tree_path_comp==True:
         for i in range(n):
-            for b in range(n,n+m):
-                beta_2_p[a-n,i,b-n]=(alpha[a,i]/(alpha[a,i]+alpha[b,i]))*(-beta[i,a,b])
-        beta[a,:n,n:n+m]=beta_2_p[a-n]
+            for a in range(n,n+m):
+                for b in range(n,n+m):
+                    'effect on trees'
+                    beta_4_t[i,a-n,b-n]=-alpha[a,i]*(1+alpha[b,i])*(1+alpha[a,b])
+                    'effect on pathogens'
+                    beta_2_p[a-n,i,b-n]=(alpha[a,i]/(alpha[a,i]+alpha[b,i]))*(-beta_4_t[i,a-n,b-n])      
+            beta[i,n:,n:]=beta_4_t[i]      
+            beta[a,:n,n:n+m]=beta_2_p[a-n]
+            
     
     'HOIs with two trees'
     if tree_HOI==True:
@@ -95,6 +127,27 @@ def beta_kernel_func(alpha,n,m):
                 for b in range(n,n+m): 
                     beta_2_t[i,j,b-n]=np.random.uniform(-0.2,0.2)
             beta[i,:n,n:]=beta_2_t[i]
+            
+    'tends to cause breakdowns'       
+    if interception_HOI_det==True:
+        beta=np.zeros([m+n,m+n,m+n])
+        for i in range(n+m):
+            for j in range(n+m):
+                for k in range(n+m):
+                    beta[i,j,k]=np.random.normal(0,1)*alpha[i,j]*alpha[i,k]*alpha[j,k]
+                    
+        for j in range(n+m):                      
+             #beta[:n,:n,j]=np.tril(beta[:n,:n,j]) + np.tril(beta[:n,:n,j], -1).T
+             beta[n:n+m,n:n+m,j]=np.tril(beta[n:n+m,n:n+m,j]) + np.tril(beta[n:n+m,n:n+m,j], -1).T   
+             #beta[n:n+m,n:,j]=-np.transpose(beta[n:,n:n+m,j])    
+        beta[:n,:n,:n]=np.zeros([n,n,n]) #no 3 tree HOIs
+        beta[n:n+m,n:n+m,n:n+m]=np.zeros([m,m,m]) #no 3 path HOIs
+             
+    'tends to cause breakdowns'         
+    if interception_rand==True:
+        beta=np.random.normal(0,1,[n+m,n+m,n+m]) #95% of values found within 3 standard deviations of mean, therefore bounds approx (-1,1)
+        #beta[np.where(beta>1)]=1
+        #beta[np.where(beta<-1)]=-1
     return(beta)
 
 def non_lin_func(beta,N):
@@ -125,18 +178,6 @@ def ratio_test_func(alpha):
                 if r_ratios[i,j]<alp_ratios[i,j]:
                     print(r_ratios[i,j])
 
-
-alpha=pairwise_kernel_func(w,d,x,n,m)
-if ratio_test==True:
-    ratio_test_func(alpha)    
-         
-beta=np.zeros([m+n,m+n,m+n]) 
-g=np.zeros([(n+m)])
-if HOI==True: 
-    beta=beta_kernel_func(alpha,n,m)
-    g=non_lin_func(beta,N)      
-             
-                
 def master_eqn(r,N,alpha,g,beta):
     g=non_lin_func(beta,N)  
     res=np.matmul(np.diag(r),N)*(1+np.matmul(alpha,N)+g)
@@ -156,32 +197,16 @@ def Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT):
         N_p[:,t+1]=np.copy(N[:])    #need to record this so know when to stop
         N_final=np.copy(N) #to save final values
         #require 10 time-steps of minimal change
-        if t>10:
-            all_test=(np.abs(N_p[:,t-10:t]-N_p[:,t-11:t-1])).flatten()
+        if t>stab_len/dt: #ratio for consistent stable space considered
+            all_test=(np.abs(N_p[:,t-int(0.02/dt):t]-N_p[:,t-(int(0.02/dt)+1):t-1])).flatten()
             if all(all_test<=0.00001)==True:
                 final_time=t
                 break
-    print('Time integration ended after ' + str(t) +' steps')
+    if printing==True:
+        print('Time integration ended after ' + str(t) +' steps')
     return(N_final,N_p,final_time)  
 
-N_final,N_p,final_time=Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT)
-
-'trajectories'
-for i in range(len(N)):
-    if i<n:        
-        plt.plot(np.linspace(0,final_time,final_time+1),N_p[i,:final_time+1], label='T_'+str(i))
-        plt.legend() 
-    if i>=n:
-        plt.plot(np.linspace(0,final_time,final_time+1),N_p[i,:final_time+1], label='P_'+str(i-n))    
-        plt.legend()   
-plt.show()     
-        
-'abundance plots'
-abundance_plots_func(N_final,n,m) #call function for abundance plots  
-
-
-def mutation_func_HOI(alpha,beta,n,m):
-    pert=0.01
+def mutation_func_HOI(alpha,beta,n,m,pert):
     alpha0=np.copy(alpha)    #create copy to save original values
     beta0=np.copy(beta)       #saves original values for next mutation attempt
     for i in range(1,1001): #isolate scalar value
@@ -221,51 +246,196 @@ def mutation_func_HOI(alpha,beta,n,m):
         invasion_fitness=r[mutant]*(1+np.matmul(alpha,N_test)+g)[mutant]
         if invasion_fitness>0:
             break
-    print(str(i) +' mutational attempts, invasion fitness:' +str(invasion_fitness))
-    return(alpha,beta,invasion_fitness)
-
-#alpha,beta,invasion_fitness=mutation_func_HOI(alpha,beta)
+    if printing==True:
+        print(str(i) +' mutational attempts, invasion fitness:' +str(invasion_fitness))
+    path_traits=np.array([d,w])
+    tree_trait=np.copy(x)
+    return(alpha,beta,invasion_fitness, path_traits, tree_trait, mutant)
 
 def evolution_func_HOI(N_final,alpha,beta,n,m):
     N=np.copy(N_final)
-    alpha,beta,invasion_fitness=mutation_func_HOI(alpha,beta,n,m)
+    alpha,beta,invasion_fitness, path_traits, tree_trait,mutant=mutation_func_HOI(alpha,beta,n,m,pert)
     g=np.zeros([(n+m)])
     if HOI==True: 
         g=non_lin_func(beta,N)
     N_final,N_p,final_time=Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT)
-    return(N_final,alpha,beta)
+    return(N_final,alpha,beta, path_traits, tree_trait,mutant)
 
+'abundance plot function'
+def abundance_plots_func(y,n,m):   
+    #rank of tree types
+        tree_rank=np.argsort(y[:n],axis=0)
+        path_rank=np.argsort(y[n:],axis=0)
+        
+        #tree abundance distribution
+        langs=[]
+        for i in tree_rank:
+            langs.append('T_'+str(i))
+        tree_a=y[tree_rank].tolist()
+        plt.scatter(langs,tree_a)
+        plt.title('Initial (after 1 eco run) tree abundance distribution')
+        plt.show()
+    
+        #pathogen abundance distribution
+        langs=[]
+        for i in path_rank:
+            langs.append('P_'+str(i))
+        path_a=y[n+path_rank].tolist()
+        plt.scatter(langs,path_a)
+        plt.title('Initial (after 1 eco run) pathogen abundance distribution')
+        plt.show()
+        return(tree_rank, tree_a, path_rank, path_a)
+        
+        
+alpha=pairwise_kernel_func(w,d,x,n,m)
+if ratio_test==True:
+    ratio_test_func(alpha)    
+         
+beta=np.zeros([m+n,m+n,m+n]) 
+g=np.zeros([(n+m)])
+if HOI==True: 
+    beta=beta_kernel_func(alpha,n,m)
+    g=non_lin_func(beta,N)      
+             
+
+N_final,N_p,final_time=Runge_kutta_int_HOI(r,N,alpha,g,beta,dt,fT)
+
+'trajectories'
+for i in range(len(N)):
+    if i<n:        
+        plt.plot(np.linspace(0,final_time,final_time+1),N_p[i,:final_time+1], label='T_'+str(i))
+        plt.legend() 
+    if i>=n:
+        plt.plot(np.linspace(0,final_time,final_time+1),N_p[i,:final_time+1], label='P_'+str(i-n))  
+        plt.title('Species density trajectories in first ecological run')
+        plt.legend()   
+plt.show()     
+        
+'abundance plots'
+abundance_plots_func(N_final,n,m) #call function for abundance plots  
+
+#alpha,beta,invasion_fitness,mutant=mutation_func_HOI(alpha,beta)
+
+'MAIN SIMULATION LOOP'
 N_pt=np.zeros([n+m,tau])
-if Evolution==True:    
-    for t in range(tau):
-        start_time = time.time()
-        N_final,alpha,beta=evolution_func_HOI(N_final,alpha,beta,n,m)
-        N_pt[:,t]=N_final[:] 
-        end_time = time.time()
-        print('Simulation length: ' +str(end_time  - start_time))
+N_pt[:,0]=N_final
+tree_trait_ev=np.zeros([n,tau])
+tree_trait_ev[:,0]=x
+path_trait_ev=np.zeros([2,m,tau]) #2D path phenotype
+path_trait_ev[:,:,0]=np.array([d,w])
+if Evolution==True: 
+    tic = time.perf_counter()
+    for t in range(1,tau):
+        N_final,alpha,beta, path_traits, tree_trait, mutant=evolution_func_HOI(N_final,alpha,beta,n,m)
+        N_pt[:,t]=N_final[:]
+        tree_trait_ev[:,t]=tree_trait
+        path_trait_ev[:,:,t]=np.array([d,w])
+    toc = time.perf_counter()
+    if printing==True:
+        print('Simulation length: ' +str(int(toc  - tic)/60) +' minutes')
     
-'Plot tree evolution space'
-for i in range(len(N[:n])):
+'Plot tree density evolution space'
+for i in range(len(N_pt[:n])):
     plt.plot(np.linspace(0,tau-1,tau),N_pt[i,:], label='T_'+str(i))  
+    plt.title('Final tree densities vs evolutionary time')
     plt.legend()
 plt.show()
     
-'Plot pathogen evolution space'
-for i in range(len(N[n:])):
+'Plot pathogen density evolution space'
+for i in range(len(N_pt[n:])):
     plt.plot(np.linspace(0,tau-1,tau),N_pt[n+i,:], label='P_'+str(i)) 
+    plt.title('Final pathogen densities vs evolutionary time')
     plt.legend()
 plt.show()
 
+if tree_mutation==True:
+    'Plot tree trait space evolution'
+    for i in range(n):
+        plt.plot(np.linspace(0,tau-1,tau),tree_trait_ev[i,:], label='T_'+str(i))
+        plt.title('Tree trait value vs evolutionary time')
+        plt.legend()
+    plt.show()    
 
-'Tree-rank evolution'
+'Plot path trait space evolution (distance from origin)'
+for i in range(n):
+    plt.plot(np.linspace(0,tau-1,tau), path_trait_ev[0,i,:], label='P_'+str(i))
+    plt.title('Pathogen trait 1 (gaussian distance from origin) vs evolutionary time')
+    plt.legend()
+plt.show() 
+
+'Plot path trait space evolution (width of Gaussian)'
+for i in range(n):
+    plt.plot(np.linspace(0,tau-1,tau), path_trait_ev[1,i,:], label='P_'+str(i))
+    plt.title('Pathogen trait 2 (width of gaussian) vs evolutionary time')
+    plt.legend()
+plt.show() 
+
+
+'Tree and pathogen rank evolution'
 tree_rank_tau=np.zeros([n,tau])
+path_rank_tau=np.zeros([m,tau])
 for i in range(tau):
     tree_rank_tau[:,i]=np.argsort(N_pt[:n,i],axis=0)
+    path_rank_tau[:,i]=np.argsort(N_pt[n:,i],axis=0)
     #print(tree_rank_tau[:,i])
 
 'Summary statistics'
-#variation in final densities
+#variation in final densities fpr trees and pathogens
 den_var=np.zeros([n+m])
 for i in range(n+m):
         den_var[i]=statistics.variance(N_pt[i,:],xbar=None)
     #want to calculate for only non-zero densities
+
+'Number of tree/path rank switches' #percentage of time trees move ranks over total possible times
+tree_rank_switch_matrix=np.where(tree_rank_tau-np.roll(tree_rank_tau,-1,axis=1)!=0,1,0)
+tree_switches=100*(np.count_nonzero(tree_rank_switch_matrix == 1)/(n*tau))
+'paths'
+path_rank_switch_matrix=np.where(path_rank_tau-np.roll(path_rank_tau,-1,axis=1)!=0,1,0)
+path_switches=100*(np.count_nonzero(path_rank_switch_matrix == 1)/(n*tau))
+if printing==True:
+    print(str(int(tree_switches)) +'% of tree ranks swapped at some point')    
+    print(str(int(path_switches)) +'% of pathogen ranks swapped at some point') 
+
+'abundance distribution after 1 eco run test'
+if Evolution==False:
+    'for trees'
+    'np.log()=ln()'
+    tree_rank, tree_a, path_rank, path_a=abundance_plots_func(N_final,n,m)
+    log_rank=np.log(np.linspace(n,1,n)) #to flip abundance dis the right way around
+    tree_a_rel=tree_a/np.sum(tree_a) #relative abundances 
+    tree_a_log=np.log(tree_a)
+    tree_a_log_rel=np.log(tree_a_rel)
+    plt.scatter(log_rank,tree_a_log) #now its facing the correct way 
+    
+    i_values=np.linspace(n,1,n) #1 is the most abundant etc
+    tree_log_slopes=np.gradient(i_values,tree_a_log)
+
+    # objective function
+    def objective(i, g, b):
+        return(-g * (i/(i + b)))
+    popt,div_cov=curve_fit(objective, i_values, tree_log_slopes)
+    #also returns a covariance matrix
+    
+    'test by doing it backwards'
+    x_new = np.linspace(n,1,n)
+    # unpack optima parameters for the objective function
+    g, b = popt
+    # use optimal parameters to calculate new values
+    y_new = np.exp(objective(x_new, g, b))
+        
+    #hmmm g and b never changes even with a new run, weird, must not be working correctly
+    
+    def objective_2(i, g, b):
+        return(-g/(i+b))
+    popt,divcov=curve_fit(objective_2, i_values, tree_log_slopes,bounds=(0,10))
+        
+    
+    'Shannon-Wiener index'
+    tree_a=np.array(tree_a)
+    p=tree_a/np.sum(tree_a) #n_i/N
+    H=np.sum(-p*np.log(p)) #the greater this number the more diversity
+        
+        
+        
+    
+
