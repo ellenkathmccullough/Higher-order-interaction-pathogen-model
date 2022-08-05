@@ -1,0 +1,28 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jul 29 12:34:58 2022
+
+@author: ellen
+"""
+
+import numpy as np 
+from scipy.stats import norm
+util_plots=False
+
+#import the pathogen utilisation function means, d, and widths, w
+'to plot pathogen gaussians'
+
+def Utilisation_funcs_plot(path_traits,dmax):
+    x=np.arange(0,dmax+5,0.1)
+    curves=np.zeros([len(path_traits[0]),len(x)])
+    for i in range(len(path_traits[0])):
+        yvals=norm.pdf(x, path_traits[0,i], path_traits[1,i])
+        if util_plots==True:
+            plt.plot(x, yvals)
+        curves[i]=yvals
+    plt.xlim(0,dmax+5)
+    plt.ylim(0,1)
+    if util_plots==True:
+        plt.show()
+    return(x,curves)
+#could be interesting to see how this plot changes over time. 
