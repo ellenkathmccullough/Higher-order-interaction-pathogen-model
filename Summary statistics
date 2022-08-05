@@ -9,6 +9,7 @@ import numpy as np
 import statistics
 from scipy.stats import entropy
 
+calc_switches=False #whether we also calculate switches
 #tree_switches=[]
 #path_switches=[]
 #den_var=np.zeros([n+m,points])
@@ -29,12 +30,13 @@ def summary_stats(n,m,tau,N_pt,no_sections):
         tree_rank_tau[:,t]=np.argsort(N_pt[:n,t],axis=0)
         path_rank_tau[:,t]=np.argsort(N_pt[n:,t],axis=0)
         #print(tree_rank_tau[:,i])
-        
-    tree_rank_switch_matrix=np.where(tree_rank_tau-np.roll(tree_rank_tau,-1,axis=1)!=0,1,0)
-    tree_switches=100*(np.count_nonzero(tree_rank_switch_matrix == 1)/(n*tau))
-    path_rank_switch_matrix=np.where(path_rank_tau-np.roll(path_rank_tau,-1,axis=1)!=0,1,0)
-    path_switches=100*(np.count_nonzero(path_rank_switch_matrix == 1)/(n*tau))
-    #print(str(tree_switches))
+      
+    if calc_switches==True:
+        tree_rank_switch_matrix=np.where(tree_rank_tau-np.roll(tree_rank_tau,-1,axis=1)!=0,1,0)
+        tree_switches=100*(np.count_nonzero(tree_rank_switch_matrix == 1)/(n*tau))
+        path_rank_switch_matrix=np.where(path_rank_tau-np.roll(path_rank_tau,-1,axis=1)!=0,1,0)
+        path_switches=100*(np.count_nonzero(path_rank_switch_matrix == 1)/(n*tau))
+        #print(str(tree_switches))
     
     'Tree density entropy'
     den_sections_tree=np.linspace(np.min(N_pt[:n,:]), np.max(N_pt[:n,:]), no_sections)
@@ -79,4 +81,4 @@ def summary_stats(n,m,tau,N_pt,no_sections):
         path_rank_ent_vec[i]=entropy(path_rank_ent_mat[i,:], base=m)
     avg_rank_ent_path=np.mean(path_rank_ent_vec)
     
-    return(avg_den_var, tree_switches, path_switches, avg_den_ent_tree, avg_den_ent_path, avg_rank_ent_tree, avg_rank_ent_path)
+    return(avg_den_ent_tree, avg_den_ent_path, avg_rank_ent_tree, avg_rank_ent_path)
