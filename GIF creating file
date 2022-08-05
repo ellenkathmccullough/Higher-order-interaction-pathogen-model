@@ -1,0 +1,40 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Aug  4 09:50:26 2022
+
+@author: ellen
+"""
+
+import numpy as np 
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.animation import PillowWriter
+
+
+#fig=plt.figure()
+
+plt.xlim(0,dmax+5)
+plt.ylim(0,1)
+
+
+metadata = dict(title='Animation', artist='EllenMcC')
+writer = PillowWriter(fps=5, metadata=metadata)
+#pillow writer is better for GIFS
+
+#xlist=[]
+#ylist=[]
+
+fig=plt.figure()
+with writer.saving(fig, 'Utilisation funcs evolution.gif', 100):
+    for t in range(tau):
+        _,_,_,dwx,_=weighted_mutation_func(alpha,beta,n,m,pert,dwx,dmax,N_final,r)
+        path_traits=np.copy(dwx[0:2])
+        tree_trait=np.copy(dwx[2])
+        xvals,curves=Utilisation_funcs_plot(path_traits,dmax)
+        xlist=xvals.tolist()
+        for i in range(len(curves)):
+            plt.plot(xlist,curves[i],label = 'id %s'%i)
+        writer.grab_frame()
+        plt.cla()
+        
+    
