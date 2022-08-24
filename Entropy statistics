@@ -1,0 +1,53 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Aug 16 12:25:30 2022
+
+@author: ellen
+"""
+
+import numpy as np
+import statistics
+from scipy.stats import entropy
+
+no_sections=10
+
+#want to be able to enter N_pt[:n] with n for N for trees, and N_pt[n with m for N for pathogens
+def entropy_statistics_func(N, s, tau, no_sections):
+    dead=[]
+    for i in range(s):  #delete all species that are always dead (after initialisation)
+        if all(N[i,1:] < 2e-2):
+            dead.append(i)
+    Ne=np.delete(N,dead,0)  #effective density
+    se=len(Ne) #effective number of remaining species
+    
+    'Density entropy calculation'
+    den_sections=np.linspace(np.min(Ne), np.max(Ne), no_sections+1)
+    #first value will almost certainly be essentailly 0
+    #all values are greater than or equal to the lower bound
+    sec_length=np.zeros([se,no_sections]) #time spent in each section
+    den_ent_vec=np.zeros([se])    
+    for q in range(se):
+        for j in range(no_sections):
+            if j==no_sections-1: #need to count top value in a section
+                sec_length[q,j]=len(Ne[q][np.where(Ne[q]>=den_sections[j])])/tau
+            else:
+                sec_length[q,j]=len(Ne[q][np.where(np.logical_and(Ne[q]>=den_sections[j], Ne[q]<den_sections[j+1]))])/tau
+        den_ent_vec[q]=entropy(sec_length[q],base=no_sections) #scales entropy between 0 and 1
+    avg_den_ent=np.mean(den_ent_vec)
+                
+    'Rank entropy calculation'
+    rank_tau=np.zeros([se,tau])
+    for t in range(tau):
+        rank_tau[:,t]=np.argsort(Ne[:,t],axis=0)
+    
+    rank_ent_mat=np.zeros([se,se])
+    rank_ent_vec=np.zeros([se,1])
+    for i in range(se):
+        for j in range(se):
+            rank_ent_mat[i,j]=np. count_nonzero(rank_tau[i,:]==j)/tau
+        rank_ent_vec[i]=entropy(rank_ent_mat[i,:], base=se)
+    avg_rank_ent=np.mean(rank_ent_vec)
+    return(avg_den_ent,avg_rank_ent)            
+                
+                   
+    
