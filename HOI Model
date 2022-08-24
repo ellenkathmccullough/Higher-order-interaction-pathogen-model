@@ -38,7 +38,7 @@ tree_comp=True
 tree_path_comp=True #also turns off HOIs involving pairwise path-tree interactions
 interception_HOI_det=False
 interception_rand=False
-printing=False
+printing=True
 #Gaussian_pert==False #to make perturbation gaussian distributed (maybe will do this)
 abun_plots=True
 distribution_0=2 #0=uniform, 1=gaussian, 2=lognormal, 3=geometric, 4=lognormal
@@ -220,7 +220,7 @@ def weighted_mutation_func(alpha,beta,n,m,pert,dwx,dmax,N_final,r):
     for i in range(1,1001): #isolate scalar value
         alpha=np.copy(alpha0)
         beta=np.copy(beta0)
-        dwx=np.copy(dwx)
+        dwx=np.copy(dwx0)
         #density weighted mutant
         #randomly selects between density weighted mutant (offspring) and uniform mutant (immigration)
         N_rel=np.concatenate((N_final[:n]/np.sum(N_final[:n]),N_final[n:]/np.sum(N_final[n:])))
@@ -231,14 +231,16 @@ def weighted_mutation_func(alpha,beta,n,m,pert,dwx,dmax,N_final,r):
             mutant=n+mutant #to check invasion fitness
             
         if tree_mutation==True:
-            pheno=randint(0,2)
+            #1 in every 4 mutations is a tree mutation
+            pheno=random.choices([0,1,2], weights=[.375,.375,.25], k=1)
             if pheno==0 or pheno==1:
                 dwx[pheno,mutant]=np.random.normal(dwx[pheno,mutant],pert[pheno])
                 mutant=n+mutant
             if pheno==2:
                 mutant=np.where(randint(0,1)==0, random.choices(range(0,n),weights=N_rel[n:]),random.randrange(0,n))
                 dwx[pheno,mutant]=np.random.normal(dwx[pheno,mutant],pert[pheno])
-            
+        if dwx.any()<0: #if it is NOT TRUE that any values are neg (i.e. all pos) then the loop finishes
+            continue
         alpha=pairwise_kernel_func(dwx,n,m)
         beta=np.zeros([m+n,m+n,m+n]) 
         g=np.zeros([(n+m)])
@@ -404,22 +406,6 @@ for i in range(tau):
     path_rank_tau[:,i]=np.argsort(N_pt[n:,i],axis=0)
     #print(tree_rank_tau[:,i])
 
-'Summary statistics'
-#variation in final densities fpr trees and pathogens
-den_var=np.zeros([n+m])
-for i in range(n+m):
-        den_var[i]=statistics.variance(N_pt[i,:],xbar=None)
-    #want to calculate for only non-zero densities
-
-'Number of tree/path rank switches' #percentage of time trees move ranks over total possible times
-tree_rank_switch_matrix=np.where(tree_rank_tau-np.roll(tree_rank_tau,-1,axis=1)!=0,1,0)
-tree_switches=100*(np.count_nonzero(tree_rank_switch_matrix == 1)/(n*tau))
-'paths'
-path_rank_switch_matrix=np.where(path_rank_tau-np.roll(path_rank_tau,-1,axis=1)!=0,1,0)
-path_switches=100*(np.count_nonzero(path_rank_switch_matrix == 1)/(n*tau))
-if printing==True:
-    print(str(int(tree_switches)) +'% of tree ranks swapped at some point')    
-    print(str(int(path_switches)) +'% of pathogen ranks swapped at some point') 
 
 'abundance distribution after 1 eco run test'
 if Evolution==False:
