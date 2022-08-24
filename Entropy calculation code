@@ -16,25 +16,26 @@ from matplotlib.animation import FuncAnimation
 
 #run HOI_model and Summary_statistics first
 
-n=10
-m=10
+n=30
+m=30
 'statistical arrays'
 points=50
 no_sections=10  #number of sections to divide density space up into
 fT=100000
 stab_len=1 #length of eco time that stability is required for
 dt=0.001
-tau=50
+tau=100
 dmax=15 #pathogen gaussian mean max value 
 wmax=2 #pathogen gaussian width max value
 xmax=15 #tree trait max value
-pert=0.1*np.array([dmax,wmax]) 
+#pert=0.1*np.array([dmax,wmax]) 
+pert=np.array([1.5, 0.2]) #should be consistent, not dependent on spectrum breadth
         
-printing=False #to turn off the printing and hopefully make sim faster
+printing=True #to turn off the printing and hopefully make sim faster
 HOI=False
 tree_HOI=False
 Evolution=True
-tree_mutation=False #included with pathogen mutations twice as likely
+tree_mutation=True #included with pathogen mutations twice as likely
 tree_comp=True
 tree_path_comp=True #also turns off HOIs involving pairwise path-tree interactions
 abun_plots=False    #condition within abundance_plot function
@@ -42,18 +43,20 @@ trajectory_plots=False #to see how mutations evolve
 Gaussian_plots=False #plot the pathogens changing utilisation funcs
 save_entropy=True
 printing=False #to print number of timesteps and mutation attempts
+effective_entropy=True #only calculates entropy of constantly non-dead species
 
 Density_entropy=np.zeros([2,points])
 Rank_entropy=np.zeros([2,points])
 tic= time.perf_counter()
 for i in range(points):
     'Assume trees and paths with similar and sufficiently large fitness values'
-    r=np.random.uniform(100,110,(n+m))
+    r=np.random.uniform(100,105,(n+m))
     
     'initial tree pheontypes'
     x_tree=np.random.uniform(1,xmax,n) #tree trait values
     d=np.random.uniform(1,dmax,m) #pathogen mean values distance from 0, modelled gaussian or normal?
     w=np.random.uniform(1,wmax,m) #width of pathogen gaussians
+    dwx=np.array([d,w,x_tree])
     
     'copy initial phenotypes'
     x0_tree=np.copy(x_tree)
@@ -117,9 +120,8 @@ for i in range(points):
         for t in range(1,tau):
             N_final,N_p,alpha,beta,dwx,mutant, final_time=evolution_func_HOI(N_final,alpha,beta,n,m,dwx)
             N_pt[:,t]=N_final[:]
-            tree_trait_ev[:,t]=tree_trait
-            path_trait_ev[:,:,t]=np.array([d,w])    
-            
+            tree_trait_ev[:,t]=dwx[2]
+            path_trait_ev[:,:,t]=dwx[0:2]  
             if trajectory_plots==True:
                 'trajectories'
                 for j in range(len(N)):
@@ -136,8 +138,12 @@ for i in range(points):
                 Utilisation_funcs_plot(path_traits,dmax)
             #Camera.snap() #would be good to get the animation working
         
-    avg_den_ent_tree, avg_den_ent_path, avg_rank_ent_tree, avg_rank_ent_path=summary_stats(n,m,tau,N_pt,no_sections)
+    if effective_entropy==False:
+        avg_den_ent_tree, avg_den_ent_path, avg_rank_ent_tree, avg_rank_ent_path=summary_stats(n,m,tau,N_pt,no_sections)
      
+    if effective_entropy==True:
+        avg_den_ent_tree, avg_rank_ent_tree=entropy_statistics_func(N_pt[:n], n, tau, no_sections)
+        avg_den_ent_path, avg_rank_ent_path=entropy_statistics_func(N_pt[n:], m, tau, no_sections)
     Density_entropy[0,i]=avg_den_ent_tree
     Density_entropy[1,i]=avg_den_ent_path
     
